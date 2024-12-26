@@ -21,3 +21,7 @@ properties:
   acpi-comp-id:
     type: string-array
     description: Used to supply OSPM with a device’s Plug and Play-Compatible Device ID
+
+  test-id:
+    type: phandle
+    description: Test property
