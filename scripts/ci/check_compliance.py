@@ -22,6 +22,7 @@ import shlex
 import shutil
 import textwrap
 import unidiff
+import yaml
 
 from yamllint import config, linter
 
@@ -31,10 +32,15 @@ import magic
 from west.manifest import Manifest
 from west.manifest import ManifestProject
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from get_maintainer import Maintainers, MaintainersError
 import list_boards
 import list_hardware
+
+# Zephyr local directory import path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, os.path.join(ZEPHYR_BASE, 'scripts', 'dts', 'python-devicetree', 'src'))
+
+from devicetree import edtlib
 
 logger = None
 
@@ -340,6 +346,21 @@ class DevicetreeBindingsCheck(ComplianceTest):
         for dts_binding in dts_bindings:
             self.required_false_check(dts_binding)
 
+        # If no bindings are changed, skip this check.
+        try:
+            subprocess.check_call(['git', 'diff', '--quiet', COMMIT_RANGE] +
+                                  dts_bindings)
+            nodiff = True
+        except subprocess.CalledProcessError:
+            nodiff = False
+        if nodiff:
+            self.skip('no changes to bindings were made')
+
+        for binding in edtlib.bindings_from_paths(...):
+            print(binding)
+            # self.check_recursively(binding, self.property_name_check)
+            # self.check_recursively(binding, self.required_false_check)
+
     def parse_dt_bindings(self):
         """
         Returns a list of dts/bindings/**/*.yaml files
@@ -352,15 +373,36 @@ class DevicetreeBindingsCheck(ComplianceTest):
 
         return dt_bindings
 
-    def required_false_check(self, dts_binding):
-        with open(dts_binding) as file:
-            for line_number, line in enumerate(file, 1):
-                if 'required: false' in line:
-                    self.fmtd_failure(
-                        'warning', 'Devicetree Bindings', dts_binding,
-                        line_number, col=None,
-                        desc="'required: false' is redundant, please remove")
+    def check_yaml_property_name(self, binding):
+        """
+        Checks if the property names in the binding file contain underscores.
+        """
+        with open(Path(__file__).parent / 'bindings_propertys_name_wl.yaml', 'r') as f:
+            wl = yaml.safe_load(f.read())
+            if wl != None:
+                BINDINGS_PROPERTYS_WL = set(wl)
+            else:
+                BINDINGS_PROPERTYS_WL = {0,}
 
+        for prop_name in binding.prop2specs:
+            if '_' in prop_name and prop_name not in BINDINGS_PROPERTYS_WL:
+                better_prop = prop_name.replace('_', '-')
+                self.failure(
+                    f"{binding.path}: property '{prop_name}' contains underscores.\n"
+                    f"\tUse '{better_prop}' instead unless this property name is from Linux.\n"
+                    "Or another authoritative upstream source of bindings for "
+                    f"compatible '{binding.compatible}'.\n"
+                    "\tHint: update 'bindings_propertys_name_wl.yaml' if you need to "
+                    "override this check for this property."
+                )
+
+    def required_false_check(self, binding):
+        raw_props = binding.raw.get('properties', {})
+        for prop_name, raw_prop in raw_props.items():
+            if raw_prop.get('required') is False:
+                self.failure(
+                    f'{binding.path}: property "{prop_name}": '
+                    "'required: false' is redundant, please remove")
 
 class KconfigCheck(ComplianceTest):
     """
