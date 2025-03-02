@@ -9,7 +9,9 @@ import os
 from pathlib import Path
 
 import pytest
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from devicetree import edtlib
 
 # Test suite for edtlib.py.
@@ -530,6 +532,20 @@ def test_bus():
     assert "foo" in edt.get_node("/buses/foo-bus/node1/nested").on_buses
     assert str(edt.get_node("/buses/foo-bus/node1/nested").binding_path) == \
         hpath("test-bindings/device-on-foo-bus.yaml")
+
+def test_binding_top_key():
+    fname2path = {'include.yaml': 'test-bindings-include/include.yaml',
+                  'include-2.yaml': 'test-bindings-include/include-2.yaml'}
+
+    with from_here():
+        binding = edtlib.Binding("test-bindings/defaults.yaml", fname2path)
+    title = binding.title
+    description = binding.description
+    compatible = binding.compatible
+
+    assert title == "Test binding"
+    assert description == "Property default value test"
+    assert compatible == "defaults"
 
 def test_child_binding():
     '''Test 'child-binding:' in bindings'''
